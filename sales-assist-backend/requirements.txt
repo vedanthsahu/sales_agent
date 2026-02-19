@@ -1,0 +1,49 @@
+# -------------------------
+# Core web framework
+# -------------------------
+fastapi
+uvicorn
+
+# -------------------------
+# Environment variables
+# -------------------------
+python-dotenv
+
+# -------------------------
+# MongoDB (async)
+# -------------------------
+motor
+pymongo
+
+# -------------------------
+# Vector DB (Milvus)
+# -------------------------
+pymilvus
+
+# -------------------------
+# Embeddings
+# -------------------------
+sentence-transformers
+torch
+
+# -------------------------
+# LLM (Gemini)
+# -------------------------
+google-generativeai
+
+# -------------------------
+# Utilities
+# -------------------------
+numpy
+# Text splitting
+langchain-text-splitters
+
+# Document parsing
+PyMuPDF
+python-docx
+pandas
+openpyxl
+
+# Token counting
+tiktoken
+python-multipart

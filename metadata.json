@@ -1,0 +1,7 @@
+{
+  "name": "Sales Assist AI",
+  "description": "A user-friendly sales assistant chatbot with predefined service topics and intelligent follow-up suggestions.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
