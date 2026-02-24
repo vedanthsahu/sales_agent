@@ -3,6 +3,13 @@ import { Topic } from './types';
 
 export const PREDEFINED_TOPICS: Topic[] = [
   {
+    id: 'general',
+    label: 'General',
+    description: 'Search across all domains',
+    prompt: 'Give me a high-level overview and best next steps.',
+    icon: 'sparkles',
+  },
+  {
     id: 'rpa',
     label: 'RPA Automation',
     description: 'Streamline workflows with bots',

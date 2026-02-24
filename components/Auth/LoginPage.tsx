@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Icons } from '../../constants';
 
 interface LoginPageProps {
-  onLogin: () => void;
+  onLogin: (email: string) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -17,7 +17,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     // Simulate API login delay
     setTimeout(() => {
       setIsLoading(false);
-      onLogin();
+      onLogin(email);
     }, 1000);
   };
 

@@ -10,6 +10,7 @@ interface InputAreaProps {
   isLoading: boolean;
   selectedDomain: Domain | null;
   onSelectDomain: (domain: Domain) => void;
+  onRequestDomainSelection: () => void;
   availableFiles: FileMeta[];
   selectedFileIds: string[];
   onToggleFileSelection: (fileId: string) => void;
@@ -20,6 +21,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   isLoading,
   selectedDomain,
   onSelectDomain,
+  onRequestDomainSelection,
   availableFiles,
   selectedFileIds,
   onToggleFileSelection
@@ -32,7 +34,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isChatDisabled = selectedDomain === null;
+  const isDomainMissing = selectedDomain === null;
+  const isGeneralDomain = selectedDomain === 'general';
+  const isChatDisabled = isDomainMissing;
+  const areFileActionsDisabled = isGeneralDomain || isLoading;
   
   // Speech Recognition Setup
   const recognitionRef = useRef<any>(null);
@@ -72,8 +77,29 @@ export const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [inputText]);
 
+  useEffect(() => {
+    if (selectedDomain === 'general' && selectedFile) {
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [selectedDomain, selectedFile]);
+
+  useEffect(() => {
+    if (isDomainMissing || isGeneralDomain) {
+      setIsFileMenuOpen(false);
+    }
+  }, [isDomainMissing, isGeneralDomain]);
+
+  const requireDomain = () => {
+    if (isDomainMissing) {
+      onRequestDomainSelection();
+      return true;
+    }
+    return false;
+  };
+
   const handleSend = () => {
-    if (isChatDisabled) return;
+    if (requireDomain()) return;
     if ((!inputText.trim() && !selectedFile) || isLoading) return;
     onSendMessage(inputText, selectedFile);
     setInputText('');
@@ -82,7 +108,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (isChatDisabled) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -98,7 +123,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
   };
 
   const toggleListening = () => {
-    if (isChatDisabled) return;
     if (isListening) {
       recognitionRef.current?.stop();
     } else {
@@ -113,13 +137,27 @@ export const InputArea: React.FC<InputAreaProps> = ({
     }
   };
 
+  const handleUploadClick = () => {
+    if (requireDomain()) return;
+    if (areFileActionsDisabled) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileMenuToggle = () => {
+    if (requireDomain()) return;
+    if (areFileActionsDisabled) return;
+    setIsFileMenuOpen(!isFileMenuOpen);
+  };
+
   const inputPlaceholder = isChatDisabled
     ? "Select a domain to start chatting"
     : isLoading
       ? "Processing..."
       : "Type or speak...";
 
-  const selectedFiles = availableFiles.filter(f => selectedFileIds.includes(f.file_id));
+  const selectedFiles = isGeneralDomain
+    ? []
+    : availableFiles.filter(f => selectedFileIds.includes(f.file_id));
 
   return (
     <div className="relative w-full max-w-4xl mx-auto p-4 bg-white/80 backdrop-blur-md border-t border-gray-100">
@@ -168,18 +206,17 @@ export const InputArea: React.FC<InputAreaProps> = ({
             type="file" 
             ref={fileInputRef} 
             onChange={handleFileChange} 
-            disabled={isChatDisabled}
+            disabled={areFileActionsDisabled}
             className="hidden" 
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isChatDisabled}
+            onClick={handleUploadClick}
             className={`p-2 rounded-xl transition-colors duration-200 ${
-              isChatDisabled
+              isDomainMissing || areFileActionsDisabled
                 ? 'text-gray-300 cursor-not-allowed'
                 : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'
             }`}
-            title="Upload File"
+            title={isGeneralDomain ? "Uploads require a specific domain" : "Upload File"}
             type="button"
           >
             <Icons.Plus className="w-5 h-5" />
@@ -187,13 +224,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
           <div className="relative">
             <button
-              onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
+              onClick={handleFileMenuToggle}
+              aria-disabled={isDomainMissing || areFileActionsDisabled}
               className={`p-2 rounded-xl transition-colors duration-200 ${
-                isFileMenuOpen ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                isFileMenuOpen
+                  ? 'bg-primary-100 text-primary-600'
+                  : isDomainMissing || areFileActionsDisabled
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
               }`}
-              title="Select Files"
+              title={isGeneralDomain ? "General uses all documents" : "Select Files"}
               type="button"
-              disabled={isChatDisabled}
+              disabled={false}
             >
               <Icons.Paperclip className="w-5 h-5" />
             </button>
@@ -231,8 +273,19 @@ export const InputArea: React.FC<InputAreaProps> = ({
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => {
+            if (requireDomain()) {
+              textareaRef.current?.blur();
+            }
+          }}
+          onClick={() => {
+            if (requireDomain()) {
+              textareaRef.current?.blur();
+            }
+          }}
           placeholder={inputPlaceholder}
-          disabled={isLoading || isChatDisabled}
+          disabled={isLoading}
+          readOnly={isDomainMissing}
           rows={1}
           className="flex-1 max-h-32 min-h-[44px] py-3 px-1 bg-transparent border-none outline-none text-gray-800 placeholder-gray-400 resize-none overflow-y-auto"
         />
@@ -242,8 +295,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
           
           {/* Voice Input */}
           <motion.button
-  onClick={toggleListening}
-  disabled={isChatDisabled}
+  onClick={() => {
+    if (requireDomain()) return;
+    toggleListening();
+  }}
   animate={isListening ? {
     boxShadow: [
       "0 0 0px rgba(239,68,68,0.4)",
@@ -255,7 +310,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   className={`p-2 rounded-xl transition-all duration-200 ${
     isListening
       ? 'bg-red-50 text-red-500'
-      : isChatDisabled
+      : isDomainMissing
         ? 'text-gray-300 cursor-not-allowed'
         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
   }`}
@@ -267,12 +322,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
           {/* Send Button */}
           <motion.button
   onClick={handleSend}
-  disabled={isChatDisabled || (!inputText.trim() && !selectedFile) || isLoading}
+  disabled={(!inputText.trim() && !selectedFile) || isLoading}
   whileTap={{ scale: 0.9 }}
   whileHover={{ scale: 1.05 }}
   animate={{
     backgroundColor:
-      (inputText.trim() || selectedFile) && !isLoading && !isChatDisabled
+      (inputText.trim() || selectedFile) && !isLoading && !isDomainMissing
         ? "#171717"
         : "#f3f4f6"
   }}

@@ -5,8 +5,13 @@ from typing import List
 
 from logger import enhanced_logger
 from rag.ingest_pipeline import extract_text_from_file, chunk_text_for_ingestion
+from config.domains import is_ingest_domain
 from services.embedding_service import embed_texts_async
-from services.milvus_service import delete_embeddings_by_file_id, insert_embeddings
+from services.milvus_service import (
+    delete_embeddings_by_file_id,
+    insert_embeddings,
+    insert_embeddings_general,
+)
 from services.mongo_service import (
     count_chunks_for_file,
     delete_chunks_for_file,
@@ -16,15 +21,12 @@ from services.mongo_service import (
 )
 
 
-ALLOWED_DOMAINS = {"rpa", "it", "hr", "security"}
-
-
 def _build_chunk_id(file_id: str, chunk_index: int) -> str:
     return f"{file_id}:{chunk_index}"
 
 
 async def ingest_file(file_path: str, domain: str, file_id: str) -> None:
-    if domain not in ALLOWED_DOMAINS:
+    if not is_ingest_domain(domain):
         raise ValueError(f"Invalid domain: {domain}")
 
     # Idempotency: if already completed with chunks, skip.
@@ -73,6 +75,7 @@ async def ingest_file(file_path: str, domain: str, file_id: str) -> None:
             )
 
         insert_embeddings(ids, embeddings, metadata, batch_size=128)
+        insert_embeddings_general(ids, embeddings, metadata, batch_size=128)
         milvus_insert_time_ms = (time.time() - milvus_start) * 1000.0
 
         # Insert chunk metadata into Mongo

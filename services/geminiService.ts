@@ -5,6 +5,7 @@ import { Domain, ChatResponse } from "../types";
  */
 export const handleChatResponse = async (
   domain: Domain,
+  sessionId: string,
   history: { role: string; parts: { text: string }[] }[],
   currentMessage: string,
   fileIds: string[]
@@ -14,6 +15,7 @@ export const handleChatResponse = async (
     : 'http://localhost:8000/chat';
   const payload = {
     domain,
+    session_id: sessionId,
     message: currentMessage,
     file_ids: fileIds || [], // keep explicit
     history: history,

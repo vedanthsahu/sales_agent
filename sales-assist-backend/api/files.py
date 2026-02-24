@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from config.domains import is_valid_domain
+from config.domains import is_ingest_domain
 from services.mongo_service import get_file, list_files
 
 router = APIRouter()
@@ -8,7 +8,7 @@ router = APIRouter()
 
 @router.get("/files")
 async def get_files(domain: str | None = None):
-    if domain and not is_valid_domain(domain):
+    if domain and not is_ingest_domain(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
     return await list_files(domain=domain)
 

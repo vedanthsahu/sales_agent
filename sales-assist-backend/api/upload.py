@@ -4,7 +4,7 @@ import os
 import hashlib
 
 from logger import enhanced_logger
-from config.domains import is_valid_domain
+from config.domains import is_ingest_domain
 from services.ingestion_service import ingest_file
 from services.mongo_service import (
     find_file_by_hash,
@@ -22,7 +22,7 @@ async def upload_file(
     background_tasks: BackgroundTasks = None,
 ):
     try:
-        if not is_valid_domain(domain):
+        if not is_ingest_domain(domain):
             raise HTTPException(status_code=400, detail="Invalid domain")
 
         contents = await file.read()
