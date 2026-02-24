@@ -17,6 +17,7 @@ export const TopicMenu: React.FC<TopicMenuProps> = ({ isOpen, onSelect, onClose 
       case 'code': return <Icons.Code className="w-5 h-5" />;
       case 'users': return <Icons.Users className="w-5 h-5" />;
       case 'shield': return <Icons.Shield className="w-5 h-5" />;
+      case 'sparkles': return <Icons.Sparkles className="w-5 h-5" />;
       default: return <Icons.Sparkles className="w-5 h-5" />;
     }
   };

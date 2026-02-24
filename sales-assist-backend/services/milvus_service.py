@@ -16,7 +16,7 @@ from logger import enhanced_logger
 
 
 _connected = False
-_collection: Collection | None = None
+_collections: Dict[str, Collection] = {}
 
 
 def _connect() -> None:
@@ -33,54 +33,66 @@ def _connect() -> None:
 
 
 def _get_collection_name() -> str:
-    name = os.getenv("MILVUS_COLLECTION", "sales_assist_embeddings")
-    return name
+    return os.getenv("MILVUS_COLLECTION", "sales_assist_embeddings")
 
 
-def _ensure_collection() -> Collection:
-    global _collection
-    if _collection is not None:
-        return _collection
+def _get_general_collection_name() -> str:
+    return os.getenv(
+        "MILVUS_GENERAL_COLLECTION",
+        f"{_get_collection_name()}_general",
+    )
+
+
+def get_general_collection_name() -> str:
+    return _get_general_collection_name()
+
+
+def _build_schema(dim: int) -> CollectionSchema:
+    fields = [
+        FieldSchema(
+            name="id",
+            dtype=DataType.VARCHAR,
+            is_primary=True,
+            max_length=128,
+        ),
+        FieldSchema(
+            name="embedding",
+            dtype=DataType.FLOAT_VECTOR,
+            dim=dim,
+        ),
+        FieldSchema(
+            name="file_id",
+            dtype=DataType.VARCHAR,
+            max_length=128,
+        ),
+        FieldSchema(
+            name="domain",
+            dtype=DataType.VARCHAR,
+            max_length=64,
+        ),
+        FieldSchema(
+            name="chunk_index",
+            dtype=DataType.INT64,
+        ),
+    ]
+    return CollectionSchema(
+        fields=fields,
+        description="Sales Assist embeddings",
+    )
+
+
+def _ensure_collection(collection_name: str) -> Collection:
+    if collection_name in _collections:
+        return _collections[collection_name]
 
     _connect()
 
-    collection_name = _get_collection_name()
     dim = int(os.getenv("MILVUS_DIMENSION", "384"))
 
     if not utility.has_collection(collection_name):
-        fields = [
-            FieldSchema(
-                name="id",
-                dtype=DataType.VARCHAR,
-                is_primary=True,
-                max_length=128,
-            ),
-            FieldSchema(
-                name="embedding",
-                dtype=DataType.FLOAT_VECTOR,
-                dim=dim,
-            ),
-            FieldSchema(
-                name="file_id",
-                dtype=DataType.VARCHAR,
-                max_length=128,
-            ),
-            FieldSchema(
-                name="domain",
-                dtype=DataType.VARCHAR,
-                max_length=64,
-            ),
-            FieldSchema(
-                name="chunk_index",
-                dtype=DataType.INT64,
-            ),
-        ]
-        schema = CollectionSchema(
-            fields=fields,
-            description="Sales Assist embeddings",
-        )
-        _collection = Collection(name=collection_name, schema=schema)
-        _collection.create_index(
+        schema = _build_schema(dim)
+        collection = Collection(name=collection_name, schema=schema)
+        collection.create_index(
             field_name="embedding",
             index_params={
                 "index_type": "IVF_FLAT",
@@ -93,11 +105,10 @@ def _ensure_collection() -> Collection:
             extra_data={"collection": collection_name, "dimension": dim},
         )
     else:
-        _collection = Collection(collection_name)
-        # Validate embedding dimension matches expected env
+        collection = Collection(collection_name)
         try:
             embedding_field = next(
-                (field for field in _collection.schema.fields if field.name == "embedding"),
+                (field for field in collection.schema.fields if field.name == "embedding"),
                 None,
             )
             if embedding_field is not None:
@@ -115,16 +126,18 @@ def _ensure_collection() -> Collection:
                 f"Milvus collection dimension validation failed: {exc}"
             ) from exc
 
-    _collection.load()
-    return _collection
+    collection.load()
+    _collections[collection_name] = collection
+    return collection
 
 
 def init_milvus() -> None:
     """
-    Initialize Milvus connection and ensure collection exists.
+    Initialize Milvus connection and ensure collections exist.
     Intended to be called on application startup.
     """
-    _ensure_collection()
+    _ensure_collection(_get_collection_name())
+    _ensure_collection(_get_general_collection_name())
 
 
 def insert_embeddings(
@@ -132,13 +145,15 @@ def insert_embeddings(
     embeddings: Sequence[Sequence[float]],
     metadata: Sequence[Dict[str, object]],
     batch_size: int = 128,
+    collection_name: str | None = None,
 ) -> None:
     if not ids:
         return
     if not (len(ids) == len(embeddings) == len(metadata)):
         raise ValueError("ids, embeddings, and metadata must be the same length")
 
-    collection = _ensure_collection()
+    name = collection_name or _get_collection_name()
+    collection = _ensure_collection(name)
 
     for start in range(0, len(ids), batch_size):
         end = start + batch_size
@@ -160,10 +175,27 @@ def insert_embeddings(
         collection.insert(entities)
 
 
+def insert_embeddings_general(
+    ids: Sequence[str],
+    embeddings: Sequence[Sequence[float]],
+    metadata: Sequence[Dict[str, object]],
+    batch_size: int = 128,
+) -> None:
+    insert_embeddings(
+        ids,
+        embeddings,
+        metadata,
+        batch_size=batch_size,
+        collection_name=_get_general_collection_name(),
+    )
+
+
 def delete_embeddings_by_file_id(file_id: str) -> None:
-    collection = _ensure_collection()
+    default_collection = _ensure_collection(_get_collection_name())
+    general_collection = _ensure_collection(_get_general_collection_name())
     expr = f'file_id == "{file_id}"'
-    collection.delete(expr)
+    default_collection.delete(expr)
+    general_collection.delete(expr)
 
 
 def search_embeddings(
@@ -171,8 +203,10 @@ def search_embeddings(
     top_k: int,
     file_ids: List[str] | None = None,
     domain: str | None = None,
+    collection_name: str | None = None,
 ):
-    collection = _ensure_collection()
+    name = collection_name or _get_collection_name()
+    collection = _ensure_collection(name)
 
     expr_parts = []
     if file_ids:

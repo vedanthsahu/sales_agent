@@ -11,14 +11,14 @@ export interface ChatState {
   followUpSuggestions: string[];
 }
 
-export type Domain = 'rpa' | 'it' | 'hr' | 'security';
+export type Domain = 'general' | 'rpa' | 'it' | 'hr' | 'security';
 
 export interface Topic {
   id: Domain;
   label: string;
   description: string;
   prompt: string;
-  icon: 'cpu' | 'users' | 'code' | 'shield'; // Mapping to icon names
+  icon: 'cpu' | 'users' | 'code' | 'shield' | 'sparkles'; // Mapping to icon names
 }
 
 export interface FileMeta {

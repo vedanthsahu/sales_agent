@@ -5,10 +5,11 @@ import time
 import os
 
 from agents.domain_router import generate_domain_response, get_system_prompt
-from config.domains import is_valid_domain
+from config.domains import is_general_domain, is_valid_domain
 from rag.retrieve import retrieve_chunk_records
 from rag.tokenizer import count_tokens
 from services.token_budget_service import enforce_input_budget, load_token_budget
+from services.mongo_service import append_chat_messages, get_chat_history, get_session
 from logger import enhanced_logger
 from llm.gemini_client import get_model_name
 
@@ -16,8 +17,9 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    domain: str
+    domain: Optional[str] = None
     message: str
+    session_id: Optional[str] = None
     file_ids: Optional[List[str]] = Field(default_factory=list)
     history: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
@@ -53,15 +55,37 @@ async def chat(request: ChatRequest):
     fallback_used = False
 
     try:
+        if not request.domain:
+            raise HTTPException(status_code=400, detail="Domain required")
         if not is_valid_domain(request.domain):
             raise HTTPException(status_code=400, detail="Invalid domain")
+        if not request.session_id:
+            raise HTTPException(status_code=400, detail="Session required")
+
+        session = await get_session(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
 
         file_ids = list(request.file_ids or [])
+        if is_general_domain(request.domain):
+            file_ids = []
         if len(file_ids) > 10:
             raise HTTPException(status_code=400, detail="Too many file_ids (max 10)")
 
         # Enforce token budgets
-        history = list(request.history or [])
+        history = []
+        stored_messages = await get_chat_history(request.session_id, request.domain)
+        if stored_messages:
+            for msg in stored_messages:
+                role = msg.get("role")
+                if role == "assistant":
+                    role = "model"
+                if role not in {"user", "model"}:
+                    continue
+                text = str(msg.get("content", "")).strip()
+                if not text:
+                    continue
+                history.append({"role": role, "parts": [{"text": text}]})
         budget = load_token_budget()
 
         enhanced_logger.info(
@@ -141,6 +165,23 @@ async def chat(request: ChatRequest):
             )
 
         latency_ms = (time.time() - start_time) * 1000.0
+
+        await append_chat_messages(
+            session_id=request.session_id,
+            domain=request.domain,
+            messages=[
+                {
+                    "role": "user",
+                    "content": request.message,
+                    "timestamp": time.time(),
+                },
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "timestamp": time.time(),
+                },
+            ],
+        )
 
         return ChatResponse(
             answer=answer,

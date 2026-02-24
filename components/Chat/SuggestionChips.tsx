@@ -4,9 +4,15 @@ interface SuggestionChipsProps {
   suggestions: string[];
   onSelect: (suggestion: string) => void;
   disabled: boolean;
+  onRequireDomain?: () => void;
 }
 
-export const SuggestionChips: React.FC<SuggestionChipsProps> = ({ suggestions, onSelect, disabled }) => {
+export const SuggestionChips: React.FC<SuggestionChipsProps> = ({
+  suggestions,
+  onSelect,
+  disabled,
+  onRequireDomain
+}) => {
   if (!suggestions || suggestions.length === 0) return null;
 
   return (
@@ -14,9 +20,19 @@ export const SuggestionChips: React.FC<SuggestionChipsProps> = ({ suggestions, o
       {suggestions.map((suggestion, index) => (
         <button
           key={index}
-          onClick={() => onSelect(suggestion)}
-          disabled={disabled}
-          className="text-sm px-4 py-2 bg-white border border-primary-100 text-primary-700 rounded-full shadow-sm hover:bg-primary-50 hover:border-primary-200 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-left"
+          onClick={() => {
+            if (disabled) {
+              onRequireDomain?.();
+              return;
+            }
+            onSelect(suggestion);
+          }}
+          aria-disabled={disabled}
+          className={`text-sm px-4 py-2 bg-white border border-primary-100 text-primary-700 rounded-full shadow-sm transition-all duration-200 active:scale-95 text-left ${
+            disabled
+              ? 'opacity-50 cursor-not-allowed'
+              : 'hover:bg-primary-50 hover:border-primary-200 hover:shadow-md'
+          }`}
         >
           {suggestion}
         </button>

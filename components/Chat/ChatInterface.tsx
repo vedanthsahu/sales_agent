@@ -2,28 +2,33 @@ import React, { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Domain, Message, LoadingState, FileMeta } from '../../types';
 import { handleChatResponse } from '../../services/geminiService';
-import { listFiles, uploadFile } from '../../services/backendService';
+import { getChatHistory, listFiles, uploadFile } from '../../services/backendService';
 import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { SuggestionChips } from './SuggestionChips';
+import { DomainModal } from './DomainModal';
 import { Icons, PREDEFINED_TOPICS } from '../../constants';
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ChatInterfaceProps {
   onLogout: () => void;
+  sessionId: string;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout, sessionId }) => {
+  const welcomeMessage: Message = {
+    id: 'welcome',
+    role: 'model',
+    text: "Hello! I'm your Sales Assistant. I can help you with RPA, IT Infrastructure, HR Solutions, and more. How can I assist you today?"
+  };
   const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'model',
-      text: "Hello! I'm your Sales Assistant. I can help you with RPA, IT Infrastructure, HR Solutions, and more. How can I assist you today?"
-    }
+    welcomeMessage
   ]);
   const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
+  const [domainSelected, setDomainSelected] = useState(false);
+  const [isDomainModalOpen, setIsDomainModalOpen] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<FileMeta[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   
@@ -39,15 +44,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
     scrollToBottom();
   }, [messages, suggestions]);
 
-  const selectedDomainLabel = selectedDomain
+  const selectedDomainLabel = domainSelected && selectedDomain
     ? PREDEFINED_TOPICS.find((topic) => topic.id === selectedDomain)?.label ?? selectedDomain.toUpperCase()
     : null;
 
-  const handleDomainSelect = (domain: Domain) => {
+  const handleDomainSelect = async (domain: Domain) => {
     setSelectedDomain(domain);
+    setDomainSelected(true);
+    setIsDomainModalOpen(false);
     setSuggestions([]);
     setSelectedFileIds([]);
-    refreshFiles(domain);
+
+    if (domain === 'general') {
+      setAvailableFiles([]);
+    } else {
+      await refreshFiles(domain);
+    }
+
+    await loadHistory(domain);
+  };
+
+  const loadHistory = async (domain: Domain) => {
+    try {
+      const payload = await getChatHistory(sessionId, domain);
+      const mapped = (payload?.messages || []).map((msg: any, idx: number) => ({
+        id: `${domain}-${idx}`,
+        role: msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user',
+        text: msg.content || ''
+      }));
+      setMessages(mapped.length > 0 ? [welcomeMessage, ...mapped] : [welcomeMessage]);
+      setSuggestions([]);
+    } catch (error) {
+      console.error("Failed to load history", error);
+      setMessages([welcomeMessage]);
+    }
   };
 
   const refreshFiles = async (domain: Domain) => {
@@ -87,7 +117,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
     setLoadingState(LoadingState.STREAMING_RESPONSE);
 
     // 2. Prepare History for API
-    const history = messages.map(m => ({
+    const history = messages
+      .filter(m => m.id !== 'welcome')
+      .map(m => ({
       role: m.role,
       parts: [{ text: m.text }]
     }));
@@ -97,28 +129,33 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
     const modelMsgPlaceholder: Message = { id: modelMsgId, role: 'model', text: '', isTyping: true };
     setMessages(prev => [...prev, modelMsgPlaceholder]);
 
-    let effectiveFileIds = [...selectedFileIds];
+    let effectiveFileIds = selectedDomain === 'general' ? [] : [...selectedFileIds];
 
     try {
       // Upload file if attached
       if (file) {
-        const uploadResult = await uploadFile(file, selectedDomain);
-        if (uploadResult?.file_id) {
-          if (!effectiveFileIds.includes(uploadResult.file_id)) {
-            if (effectiveFileIds.length >= 10) {
-              console.warn("Maximum of 10 files can be used for RAG. New upload not added.");
-            } else {
-              effectiveFileIds = [...effectiveFileIds, uploadResult.file_id];
+        if (selectedDomain === 'general') {
+          console.warn("File upload is disabled for General domain.");
+        } else {
+          const uploadResult = await uploadFile(file, selectedDomain);
+          if (uploadResult?.file_id) {
+            if (!effectiveFileIds.includes(uploadResult.file_id)) {
+              if (effectiveFileIds.length >= 10) {
+                console.warn("Maximum of 10 files can be used for RAG. New upload not added.");
+              } else {
+                effectiveFileIds = [...effectiveFileIds, uploadResult.file_id];
+              }
             }
+            setSelectedFileIds(effectiveFileIds);
+            await refreshFiles(selectedDomain);
           }
-          setSelectedFileIds(effectiveFileIds);
-          await refreshFiles(selectedDomain);
         }
       }
 
       // 4. Backend Response (single source of truth)
       const result = await handleChatResponse(
         selectedDomain,
+        sessionId,
         history,
         text || (file ? `Analyze file: ${file.name}` : ''),
         effectiveFileIds
@@ -198,6 +235,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
                 suggestions={suggestions} 
                 onSelect={(txt) => handleSendMessage(txt, null)} 
                 disabled={loadingState !== LoadingState.IDLE || !selectedDomain}
+                onRequireDomain={() => setIsDomainModalOpen(true)}
                 />
             </div>
             )}
@@ -213,11 +251,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onLogout }) => {
           isLoading={loadingState !== LoadingState.IDLE} 
           selectedDomain={selectedDomain}
           onSelectDomain={handleDomainSelect}
+          onRequestDomainSelection={() => setIsDomainModalOpen(true)}
           availableFiles={availableFiles}
           selectedFileIds={selectedFileIds}
           onToggleFileSelection={toggleFileSelection}
         />
       </div>
+      <DomainModal
+        isOpen={isDomainModalOpen}
+        onSelect={(topic) => handleDomainSelect(topic.id)}
+        onClose={() => setIsDomainModalOpen(false)}
+      />
     </div>
   );
 };

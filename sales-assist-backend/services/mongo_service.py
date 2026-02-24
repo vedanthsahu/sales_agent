@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import uuid
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -18,6 +19,12 @@ def _to_object_id(file_id: str) -> ObjectId:
 
 def get_db():
     return get_database()
+
+
+async def ensure_indexes() -> None:
+    db = get_db()
+    await db["chat_history"].create_index([("session_id", 1), ("domain", 1)])
+    await db["sessions"].create_index([("user_id", 1), ("is_active", 1)])
 
 
 async def insert_file_metadata(
@@ -127,3 +134,59 @@ async def find_file_by_hash(file_hash: str, domain: Optional[str] = None) -> Opt
     if domain:
         query["domain"] = domain
     return await db["files"].find_one(query)
+
+
+async def create_session(user_id: str) -> str:
+    db = get_db()
+    session_id = uuid.uuid4().hex
+    await db["sessions"].insert_one(
+        {
+            "session_id": session_id,
+            "user_id": user_id,
+            "created_at": datetime.utcnow(),
+            "is_active": True,
+        }
+    )
+    return session_id
+
+
+async def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    db = get_db()
+    return await db["sessions"].find_one({"session_id": session_id})
+
+
+async def end_session(session_id: str) -> None:
+    db = get_db()
+    await db["sessions"].update_one(
+        {"session_id": session_id},
+        {"$set": {"is_active": False, "ended_at": datetime.utcnow()}},
+    )
+
+
+async def append_chat_messages(
+    session_id: str,
+    domain: str,
+    messages: List[Dict[str, Any]],
+) -> None:
+    if not messages:
+        return
+    db = get_db()
+    await db["chat_history"].update_one(
+        {"session_id": session_id, "domain": domain},
+        {
+            "$setOnInsert": {"created_at": datetime.utcnow()},
+            "$set": {"updated_at": datetime.utcnow()},
+            "$push": {"messages": {"$each": messages}},
+        },
+        upsert=True,
+    )
+
+
+async def get_chat_history(session_id: str, domain: str) -> List[Dict[str, Any]]:
+    db = get_db()
+    doc = await db["chat_history"].find_one(
+        {"session_id": session_id, "domain": domain}
+    )
+    if not doc:
+        return []
+    return list(doc.get("messages") or [])
